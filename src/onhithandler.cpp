@@ -9,8 +9,6 @@
 
 using skpepe_events::OnHitEventHandler;
 
-constexpr auto kStaggerSpellId = "SKPEPE_StaggerSpell";
-constexpr auto kKnockdownSpellId = "SKPEPE_KnockdownSpell";
 constexpr RE::FormID kImmuneStrongUnrelentingForceAddr = 0x172AC;
 
 OnHitEventHandler* OnHitEventHandler::GetSingleton() {
@@ -40,32 +38,6 @@ bool OnHitEventHandler::Register() {
         return false;
     }
 
-    auto staggerSpellForm = RE::TESForm::LookupByEditorID(kStaggerSpellId);
-    if (!staggerSpellForm) {
-        logger::error("Failed to load in stagger spell from ESP. Check that SKPEPE.esl is enabled.");
-        return false;
-    }
-    handlerSingleton->staggerSpell = staggerSpellForm->As<RE::SpellItem>();
-    if (!handlerSingleton->staggerSpell) {
-        logger::error(
-            "Found stagger spell not the appropriate type, got {}. Check that SKPEPE.esl doesn't have conflicts in "
-            "xEdit.",
-            staggerSpellForm->GetFormType());
-        return false;
-    }
-    auto knockdownSpellForm = RE::TESForm::LookupByEditorID(kKnockdownSpellId);
-    if (!knockdownSpellForm) {
-        logger::error("Failed to load in knockdown spell from ESP. Check that SKPEPE.esl is enabled.");
-        return false;
-    }
-    handlerSingleton->knockdownSpell = knockdownSpellForm->As<RE::SpellItem>();
-    if (!handlerSingleton->knockdownSpell) {
-        logger::error(
-            "Found knockdown spell not the appropriate type, got {}. Check that SKPEPE.esl doesn't have conflicts in "
-            "xEdit.",
-            knockdownSpellForm->GetFormType());
-        return false;
-    }
     RE::ScriptEventSourceHolder* eventHolder = RE::ScriptEventSourceHolder::GetSingleton();
     eventHolder->AddEventSink(handlerSingleton);
     registered = true;
@@ -80,6 +52,43 @@ bool OnHitEventHandler::Register() {
 static void TryStagger(RE::Actor* a_target, float a_staggerMult, RE::Actor* a_aggressor) {
     REL::Relocation<decltype(&TryStagger)> func{REL::RelocationID(36700, 37710)};
     func(a_target, a_staggerMult, a_aggressor);
+}
+
+static bool TryPush(RE::Actor* target, float pushForce, RE::Actor* aggressor) {
+    auto vm = RE::BSScript::Internal::VirtualMachine::GetSingleton();
+    if (vm == nullptr) {
+        logger::error("Can't get script engine VM.");
+        return false;
+    }
+    auto* handlePolicy = vm->GetObjectHandlePolicy();
+    if (handlePolicy == nullptr) {
+        logger::error("Can't get script engine handle policy.");
+        return false;
+    }
+    RE::VMHandle targetHandle = handlePolicy->GetHandleForObject(target->GetFormType(), target);
+    RE::VMHandle aggressorHandle = handlePolicy->GetHandleForObject(aggressor->GetFormType(), aggressor);
+    if (!targetHandle || !aggressorHandle) {
+        logger::error("Failed to create VM handles for object to be force pushed.");
+        return false;
+    }
+
+    RE::BSTSmartPointer<RE::BSScript::Object> aggressorObject;
+    vm->FindBoundObject(aggressorHandle, "ObjectReference", aggressorObject);
+    if (!aggressorObject) {
+        logger::error("Failed to get script object for aggressor.");
+        return false;
+    }
+
+    auto callback = RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor>();
+    auto args = RE::MakeFunctionArguments(std::move(target), std::move(pushForce));
+    const RE::BSFixedString functionName = "PushActorAway"sv;
+    if (!aggressorObject) {
+        logger::error("Failed to create function args to script.");
+        return false;
+    }
+    logger::trace("Attempting pushback");
+    vm->DispatchMethodCall(aggressorObject, functionName, args, callback);
+    return true;
 }
 
 // Helper to print out trace messages when things are missing
@@ -146,7 +155,7 @@ RE::BSEventNotifyControl OnHitEventHandler::ProcessEvent(const RE::TESHitEvent* 
         staggerVal = 100.0f;
     } else if (knockdownVal > 0.0f) {
         logger::trace("Applying perk knockdown effect");
-        caster->CastSpellImmediate(knockdownSpell, false, defender, 1.0, false, knockdownVal / 10, perkOwner);
+        TryPush(defender, knockdownVal / 10, perkOwner);
         //  Don't stagger if we're already knocking down the actor.
         return RE::BSEventNotifyControl::kContinue;
     }
@@ -166,11 +175,7 @@ RE::BSEventNotifyControl OnHitEventHandler::ProcessEvent(const RE::TESHitEvent* 
     }
     if (staggerVal > 0.0f) {
         logger::trace("Applying perk stagger effect");
-#ifdef USENATIVESTAGGER
         TryStagger(defender, staggerVal / 100, perkOwner);
-#else
-        caster->CastSpellImmediate(staggerSpell, false, defender, 1.0, false, staggerVal / 100, perkOwner);
-#endif
         return RE::BSEventNotifyControl::kContinue;
     }
     return RE::BSEventNotifyControl::kContinue;

@@ -16,8 +16,6 @@ namespace skpepe_events {
         OnHitEventHandler() = default;
         ~OnHitEventHandler() = default;
         static bool Register();
-        RE::SpellItem* staggerSpell;
-        RE::SpellItem* knockdownSpell;
         RE::BGSKeyword* immuneKnockdown;
     };
 
