@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 # Set your project name. This will be the name of your SKSE .dll file.
 project(
     SKPEPE
-    VERSION 1.0.0
+    VERSION 2.0.0
     DESCRIPTION
         "SKSE plugin that allows for stagger and knockdown management through perk entries."
     LANGUAGES CXX)
@@ -66,14 +66,6 @@ if(DEFINED OUTPUT_FOLDER)
     file(TO_NATIVE_PATH "${OUTPUT_FOLDER}/../${PROJECT_NAME}_ESL/"
          _eslDstFolder)
 
-    # This mod uses an ESL file, we create a seperate symlink to the mod folder
-    # We create a symlink so that we can run the creation kit and edit it and
-    # have our changes be automatically synched by our mod manager as we please.
-    if(NOT EXISTS "${_eslDstFolder}")
-        file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}/mod/" _eslSrcFolder)
-        execute_process(COMMAND cmd.exe /c mklink /J "${_eslDstFolder}"
-                                "${_eslSrcFolder}")
-    endif()
     # If you perform a "Debug" build, also copy .pdb file (for debug symbols)
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         add_custom_command(
